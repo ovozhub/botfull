@@ -19,13 +19,15 @@ from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# API kalitlari
-api_id = 25351311
-api_hash = "7b854af9996797aa9ca67b42f1cd5cbe"
-bot_token = "7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU"
+# Muhit o'zgaruvchilar
+api_id = int(os.environ.get("API_ID", "25351311"))
+api_hash = os.environ.get("API_HASH", "7b854af9996797aa9ca67b42f1cd5cbe")
+bot_token = os.environ.get("BOT_TOKEN", "7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU")
+PORT = int(os.environ.get("PORT", 10000))
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "example.onrender.com")
 
 # Parol (foydalanuvchilar kirish uchun)
-ACCESS_PASSWORD = "dnx"
+ACCESS_PASSWORD = os.environ.get("ACCESS_PASSWORD", "123Q1")
 
 # Maksimal guruh soni va kunlik limit
 TOTAL_GROUPS = 500
@@ -44,7 +46,7 @@ sessions = {}
 # Kirgan foydalanuvchilar id-lari
 authorized_users = set()
 
-# Progress saqlash (telefon raqam bo‘yicha faylda)
+
 def load_progress(phone: str) -> int:
     filename = f"sessions/{phone}_progress.txt"
     if os.path.exists(filename):
@@ -67,6 +69,7 @@ def generate_progress_bar(current, total, length=10):
     filled = int(length * current / total) if total else 0
     bar = '▰' * filled + '▱' * (length - filled)
     return f"{bar} {percent}% ({current} / {total})"
+
 
 # Start buyrug‘i
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -170,7 +173,6 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
     while running and start_index < total_groups:
         end_index = min(start_index + daily_batch, total_groups)
 
-        # Xabarni boshlash
         status_message = await context.bot.send_message(
             user_id,
             f"🚀 `{phone}` uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
@@ -185,17 +187,8 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
                     about="Avtomatik yaratildi",
                     megagroup=True
                 ))
-                channel = result.chats[0]
-
-                # Kerak bo‘lsa, botni guruhga taklif qilish (xatolikdan qochish)
-                try:
-                    await client(InviteToChannelRequest(channel, [TARGET_BOT]))
-                except Exception:
-                    pass
-
                 save_progress(phone, i)
 
-                # Progressni yangilash
                 await status_message.edit_text(
                     f"🚀 `{phone}` uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
                     f"{generate_progress_bar(i - start_index, daily_batch)}",
@@ -205,7 +198,7 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
             except Exception as e:
                 await context.bot.send_message(user_id, f"❌ Guruh #{i} yaratishda xatolik: {e}")
 
-            await asyncio.sleep(2)  # guruhlar orasidagi kutish
+            await asyncio.sleep(2)
 
         start_index = end_index
 
@@ -220,7 +213,7 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
 
     await client.disconnect()
     sessions.pop(user_id, None)
-    save_progress(phone, 0)  # agar kerak progressni qayta tiklash uchun
+    save_progress(phone, 0)
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -250,9 +243,15 @@ def main():
     application.add_handler(conv_handler)
 
     logger.info("Bot ishga tushmoqda...")
-    application.run_polling()
+
+    # Webhook rejimida ishlash
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=bot_token,
+        webhook_url=f"https://{RENDER_EXTERNAL_URL}/{bot_token}",
+    )
 
 
 if __name__ == "__main__":
     main()
-
