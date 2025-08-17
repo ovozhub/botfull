@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
+import threading
 from pathlib import Path
-
+from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
@@ -19,15 +20,11 @@ from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Muhit o'zgaruvchilar
-api_id = int(os.environ.get("API_ID", "25351311"))
-api_hash = os.environ.get("API_HASH", "7b854af9996797aa9ca67b42f1cd5cbe")
-bot_token = os.environ.get("BOT_TOKEN", "7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU")
-PORT = int(os.environ.get("PORT", 10000))
-RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "example.onrender.com")
-
-# Parol (foydalanuvchilar kirish uchun)
-ACCESS_PASSWORD = os.environ.get("ACCESS_PASSWORD", "123Q1")
+# API kalitlari (Render Environment Variables’dan olinadi)
+api_id = int(os.getenv("25351311"))
+api_hash = os.getenv("7b854af9996797aa9ca67b42f1cd5cbe")
+bot_token = os.getenv("7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU")
+ACCESS_PASSWORD = os.getenv("ACCESS_PASSWORD", "123Q1")
 
 # Maksimal guruh soni va kunlik limit
 TOTAL_GROUPS = 500
@@ -47,6 +44,7 @@ sessions = {}
 authorized_users = set()
 
 
+# Progress saqlash
 def load_progress(phone: str) -> int:
     filename = f"sessions/{phone}_progress.txt"
     if os.path.exists(filename):
@@ -67,7 +65,7 @@ def save_progress(phone: str, value: int):
 def generate_progress_bar(current, total, length=10):
     percent = int((current / total) * 100) if total else 0
     filled = int(length * current / total) if total else 0
-    bar = '▰' * filled + '▱' * (length - filled)
+    bar = "▰" * filled + "▱" * (length - filled)
     return f"{bar} {percent}% ({current} / {total})"
 
 
@@ -101,6 +99,7 @@ async def ask_phone(update: Update):
 async def phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     phone = None
+
     if update.message.contact:
         phone = update.message.contact.phone_number
     else:
@@ -153,7 +152,6 @@ async def code_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def password_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     client = sessions.get(user_id)
-
     try:
         await client.sign_in(password=update.message.text.strip())
     except Exception as e:
@@ -173,9 +171,10 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
     while running and start_index < total_groups:
         end_index = min(start_index + daily_batch, total_groups)
 
+        # Xabarni boshlash status_message
         status_message = await context.bot.send_message(
             user_id,
-            f"🚀 `{phone}` uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
+            f"🚀 {phone} uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
             f"{generate_progress_bar(0, daily_batch)}",
             parse_mode="Markdown"
         )
@@ -187,25 +186,32 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
                     about="Avtomatik yaratildi",
                     megagroup=True
                 ))
+                channel = result.chats[0]
+
+                # Botni guruhga qo‘shish ixtiyoriy
+                try:
+                    TARGET_BOT = context.bot.id  # yoki boshqa bot id
+                    await client(InviteToChannelRequest(channel, [TARGET_BOT]))
+                except Exception:
+                    pass
+
                 save_progress(phone, i)
 
+                # Progress yangilash
                 await status_message.edit_text(
-                    f"🚀 `{phone}` uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
+                    f"🚀 {phone} uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
                     f"{generate_progress_bar(i - start_index, daily_batch)}",
                     parse_mode="Markdown"
                 )
-
             except Exception as e:
                 await context.bot.send_message(user_id, f"❌ Guruh #{i} yaratishda xatolik: {e}")
-
             await asyncio.sleep(2)
 
         start_index = end_index
-
-        await context.bot.send_message(user_id, f"✅ `{phone}` uchun {end_index} tagacha guruh yaratildi.")
+        await context.bot.send_message(user_id, f"✅ {phone} uchun {end_index} tagacha guruh yaratildi.")
 
         if start_index >= total_groups:
-            await context.bot.send_message(user_id, f"🎉 `{phone}` uchun barcha {total_groups} guruh yaratildi!")
+            await context.bot.send_message(user_id, f"🎉 {phone} uchun barcha {total_groups} guruh yaratildi!")
             running = False
             break
 
@@ -225,6 +231,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# Flask app (Render health check uchun)
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "✅ Bot is running!", 200
+
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+
+
 def main():
     application = Application.builder().token(bot_token).build()
 
@@ -239,19 +257,12 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
     )
-
     application.add_handler(conv_handler)
 
     logger.info("Bot ishga tushmoqda...")
-
-    # Webhook rejimida ishlash
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=bot_token,
-        webhook_url=f"https://{RENDER_EXTERNAL_URL}/{bot_token}",
-    )
+    application.run_polling()
 
 
 if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
     main()
