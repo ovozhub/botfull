@@ -20,11 +20,11 @@ from telethon.tl.functions.channels import CreateChannelRequest, InviteToChannel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# API kalitlari (Render Environment Variables’dan olinadi)
-api_id = int(os.getenv("25351311"))
-api_hash = os.getenv("7b854af9996797aa9ca67b42f1cd5cbe")
-bot_token = os.getenv("7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU")
-ACCESS_PASSWORD = os.getenv("ACCESS_PASSWORD", "123Q1")
+# 🔑 API kalitlari (to‘g‘ridan-to‘g‘ri kodda)
+api_id = 25351311
+api_hash = "7b854af9996797aa9ca67b42f1cd5cbe"
+bot_token = "7352312639:AAGCb5E_7RC1L9yNODKsEz_JYDEz9pMOIBU"
+ACCESS_PASSWORD = "dnx"
 
 # Maksimal guruh soni va kunlik limit
 TOTAL_GROUPS = 500
@@ -188,16 +188,14 @@ async def auto_group_task(user_id, client, phone, context, total_groups=TOTAL_GR
                 ))
                 channel = result.chats[0]
 
-                # Botni guruhga qo‘shish ixtiyoriy
                 try:
-                    TARGET_BOT = context.bot.id  # yoki boshqa bot id
+                    TARGET_BOT = context.bot.id
                     await client(InviteToChannelRequest(channel, [TARGET_BOT]))
                 except Exception:
                     pass
 
                 save_progress(phone, i)
 
-                # Progress yangilash
                 await status_message.edit_text(
                     f"🚀 {phone} uchun guruhlar yaratilyapti: {start_index+1} - {end_index}\n"
                     f"{generate_progress_bar(i - start_index, daily_batch)}",
